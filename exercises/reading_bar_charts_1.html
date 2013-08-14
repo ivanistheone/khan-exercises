@@ -8,7 +8,8 @@
 <body>
     <div class="exercise">
     <div class="vars">
-        <var id="HOUSES"> [ "Gryffindor", "Hufflepuff", "Ravenclaw", "Slytherin" ]</var>
+        <!-- I18N: Harry Potter's Hogwarts house names -->
+        <var id="HOUSES"> [ $._("Gryffindor"), $._("Hufflepuff"), $._("Ravenclaw"), $._("Slytherin") ]</var>
         <var id="INDEX">randRange( 0, HOUSES.length - 1 )</var>
         <var id="VALUES">shuffle( [ 1, 2, 3, 4, 5 ], 4 )</var>
         <var id="DATA">
@@ -43,7 +44,7 @@
             </div>
 
             <div class="solution" data-type="multiple">
-                <span style="padding-right: 5px" class="sol"><var>VALUES[ INDEX ]</var></span> house points
+                <span class="sol" data-forms="integer, decimal" style="padding-right: 5px"><var>VALUES[ INDEX ]</var></span> house points
             </div>
 
             <div class="hints">
@@ -59,7 +60,7 @@
                         graph.barchart.labelDataPoint( INDEX );
                     </div>
                 </div>
-                <p><var>HOUSES[ INDEX ]</var> received <var>plural( VALUES[ INDEX ], "house point" )</var>.</p>
+                <p data-if="isSingular(VALUES[ INDEX ])"><var>HOUSES[ INDEX ]</var> received <var>VALUES[ INDEX ]</var> house point.</p><p data-else=""><var>HOUSES[ INDEX ]</var> received <var>VALUES[ INDEX ]</var> house points.</p>
             </div>
         </div>
     </div>

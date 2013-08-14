@@ -2,7 +2,7 @@
 <html data-require="math graphie graphie-helpers graphie-geometry math-format">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
-    <title>Quadrilateral Angles</title>
+    <title>Quadrilateral angles</title>
     <script src="../khan-exercise.js"></script>
     <script>
 
@@ -38,12 +38,12 @@
                         q.boxOut( [ [ [ 11, -10 ], [ 11, 10 ] ] ], [ -0.7, 0 ] );
 
                         q.draw();
-                        q.labels = { "angles" : ANG_LABELS, "sides" : $.map( $.map( q.sides, lineLength ), function( x ){ return x.toFixed( 1 ); } ) };
+                        q.labels = { "angles" : ANG_LABELS, "sides" : $.map( $.map( q.sides, lineLength ), function( x ){ return localeToFixed(x, 1); } ) };
                         q.drawLabels();
                     </div>
                 </div>
                 <div class="solution" data-type="multiple">
-                    <span class="sol"><var>ANGLES[ ANSWER_POS ]</var></span><code>\Large{^\circ}</code>
+                    <span class="sol" data-forms="integer"><var>ANGLES[ ANSWER_POS ]</var></span><code>\Large {}^\circ</code>
                 </div>
                 <div class="hints">
                     <p>This figure is a trapezoid.</p>
@@ -108,7 +108,7 @@
                         q.boxOut( [ [ [ 12, -10 ], [ 12, 10 ] ] ], [ -0.7, 0 ] );
 
                         q.draw();
-                        q.labels = { "angles" : ANG_LABELS, "sides" : $.map( $.map( q.sides, lineLength ), function( x ){ return x.toFixed( 1 ); } ) };
+                        q.labels = { "angles" : ANG_LABELS, "sides" : $.map( $.map( q.sides, lineLength ), function( x ){ return localeToFixed(x, 1); } ) };
                         q.drawLabels();
                     </div>
                 </div>
