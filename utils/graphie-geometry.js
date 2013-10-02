@@ -481,13 +481,22 @@ function Triangle(center, angles, scale, labels, points) {
 
 
     this.angleScale = function(ang) {
-        if (ang > 90) {
+        if (ang > 150) {
+            return 0.8;
+        }
+        else if (ang > 140) {
+            return 0.7;
+        }
+        else if (ang > 130) {
+            return 0.6;
+        }
+        else if (ang > 90) {
             return 0.5;
         }
         else if (ang > 40) {
             return 0.6;
         }
-        else if (ang < 25) {
+        else if (ang > 25) {
             return 0.7;
         }
         return 0.8;
@@ -648,7 +657,7 @@ function Quadrilateral(center, angles, sideRatio, labels, size) {
 
     this.generatePoints = function() {
         var once = false;
-        while ((! once) || this.isCrossed()) {
+        while ((! once) || this.isCrossed() || this.sideTooShort()) {
             var len = Math.sqrt(2 * this.scale * this.scale * this.sideRatio * this.sideRatio - 2 * this.sideRatio * this.scale * this.scale * this.sideRatio * this.cosines[3]);
             once = true;
             var tX = [0, this.scale * this.sideRatio * this.cosines[0] , len * Math.cos((this.angles[0] - (180 - this.angles[3]) / 2) * Math.PI / 180), this.scale, this.scale + Math.cos((180 - this.angles[1]) * Math.PI / 180)];
@@ -664,14 +673,31 @@ function Quadrilateral(center, angles, sideRatio, labels, size) {
             this.sideLengths = $.map(this.sides, lineLength);
             this.niceSideLengths = $.map(this.sideLengths, function(x) { return parseFloat(x.toFixed(1)); });
 
-            if (vectorProduct([this.points[0], this.points[1]], [this.points[0], this.points[2]]) > 0 || this.sideLengths[2] < 0.09) {
+            if (vectorProduct([this.points[0], this.points[1]], [this.points[0], this.points[2]]) > 0) {
                 this.sideRatio -= 0.3;
             }
 
             if (vectorProduct([this.points[0], this.points[3]], [this.points[0], this.points[2]]) < 0) {
                 this.sideRatio += 0.3;
             }
+
+            var tooShort = this.sideTooShort();
+            if (tooShort) {
+                if (tooShort.whichSide % 2 === 0) {
+                    this.sideRatio -= 0.05;
+                }
+                else {
+                    this.sideRatio += 0.05;
+                }
+            }
         }
+    }
+
+    this.sideTooShort = function() {
+        if (this.sideRatio === 1) return false;
+        var shortestSide = _.min(this.sideLengths);
+        var allSides = _.reduce(this.sideLengths, function(acc,n) { return acc+n; }, 0);
+        return shortestSide/allSides < 0.12 && {whichSide:_.indexOf(this.sideLengths,shortestSide)};
     }
 
     this.isCrossed = function() {
@@ -760,7 +786,7 @@ var randomQuadAngles = {
         rhombus: function() {
             var angA, angB;
             do {
-                angA = KhanUtil.randRange(30, 160);
+                angA = KhanUtil.randRange(30, 150);
                 angB = 180 - angA;
             }while (Math.abs(angA - angB) < 5);
             return [angA, angB, angA, angB];
@@ -769,7 +795,7 @@ var randomQuadAngles = {
         parallelogram: function() {
             var angA, angB;
             do {
-                angA = KhanUtil.randRange(30, 160);
+                angA = KhanUtil.randRange(30, 150);
                 angB = 180 - angA;
             } while (angA === angB);
             return [angA, angB, angA, angB];
@@ -778,9 +804,9 @@ var randomQuadAngles = {
         trapezoid: function() {
             var angA, angB, angC, angD;
             do {
-                angA = KhanUtil.randRange(30, 160);
+                angA = KhanUtil.randRange(30, 150);
                 angB = 180 - angA;
-                angC = KhanUtil.randRange(30, 160);
+                angC = KhanUtil.randRange(30, 150);
                 angD = 180 - angC;
             } while (Math.abs(angA - angC) < 6 || angA + angC === 180);
             return [angA, angC, angD, angB];
@@ -789,7 +815,7 @@ var randomQuadAngles = {
         isoscelesTrapezoid: function() {
             var angC, angD;
             do {
-                angC = KhanUtil.randRange(30, 160);
+                angC = KhanUtil.randRange(30, 150);
                 angD = 180 - angC;
             } while (angC === angD);
             return [angC, angC, angD, angD];
