@@ -13,6 +13,7 @@ function clockwise(points) {
     return sum(areas) > 0;
 }
 
+/* vector-add multiple [x, y] coords/vectors */
 function addPoints() {
     var points = _.toArray(arguments);
     var zipped = _.zip.apply(_, points);
@@ -57,6 +58,8 @@ $.extend(KhanUtil, {
         var sorter = {};
         var list;
 
+        sorter.hasAttempted = false;
+
         sorter.init = function(element) {
             list = $("[id=" + element + "]").last();
             var container = list.wrap("<div>").parent();
@@ -89,6 +92,7 @@ $.extend(KhanUtil, {
                         $(document).bind("vmousemove vmouseup", function(event) {
                             event.preventDefault();
                             if (event.type === "vmousemove") {
+                                sorter.hasAttempted = true;
                                 $(tile).offset({
                                     left: event.pageX - click.left,
                                     top: event.pageY - click.top
@@ -143,7 +147,7 @@ $.extend(KhanUtil, {
         };
 
         sorter.getContent = function() {
-            content = [];
+            var content = [];
             list.find("li").each(function(tileNum, tile) {
                 content.push($.trim($(tile).find(".sort-key").text()));
             });
@@ -214,8 +218,9 @@ $.extend(KhanUtil.Graphie.prototype, {
     // in the way of mouse events. This adds another SVG element on top
     // of everything else where we can add invisible shapes with mouse
     // handlers wherever we want.
-    addMouseLayer: function() {
+    addMouseLayer: function(options) {
         var graph = this;
+        options = _.extend({}, options);
 
         // Attach various metrics that are used by the interactive functions.
         // TODO: Add appropriate helper functions in graphie and replace a lot of
@@ -247,6 +252,18 @@ $.extend(KhanUtil.Graphie.prototype, {
 
         graph.mouselayer = Raphael(graph.raphael.canvas.parentNode, graph.xpixels, graph.ypixels);
         $(graph.mouselayer.canvas).css("z-index", 1);
+        if (options.onClick) {
+            var canvasClickTarget = graph.mouselayer.rect(
+                    0, 0, graph.xpixels, graph.ypixels).attr({
+                fill: "#000",
+                opacity: 0
+            });
+            $(graph.mouselayer.canvas).on("vmouseup", function(e) {
+                if (e.target === canvasClickTarget[0]) {
+                    options.onClick(graph.getMouseCoord(e));
+                }
+            });
+        }
         Khan.scratchpad.disable();
     },
 
@@ -447,7 +464,7 @@ $.extend(KhanUtil.Graphie.prototype, {
 
                 var sPath = [
                     addPoints(sMidpoint, sOffsetVector, sHeightVector),
-                    addPoints(sMidpoint, sOffsetVector, 
+                    addPoints(sMidpoint, sOffsetVector,
                               reverseVector(sHeightVector))
                 ];
 
@@ -501,7 +518,11 @@ $.extend(KhanUtil.Graphie.prototype, {
             if (match) {
                 var distance = KhanUtil.getDistance(p1, p2);
                 var precision = match[1] || 1;
-                text = text.replace(match[0], distance.toFixed(precision));
+                if (Math.abs(distance.toFixed(precision) - distance) < 1e-9) {
+                    text = text.replace(match[0], distance.toFixed(precision));
+                } else {
+                    text = text.replace(match[0], "\\approx " + distance.toFixed(precision));
+                }
             }
 
             // Calculate label position
@@ -614,7 +635,7 @@ $.extend(KhanUtil.Graphie.prototype, {
     // Constraints can be set on the on the returned object:
     //
     //  - Set point to be immovable:
-    //        movablePoint.fixed = true
+    //        movablePoint.constraints.fixed = true
     //
     //  - Constrain point to a fixed distance from another point. The resulting
     //    point will move in a circle:
@@ -658,6 +679,7 @@ $.extend(KhanUtil.Graphie.prototype, {
             highlight: false,
             dragging: false,
             visible: true,
+            bounded: true,
             constraints: {
                 fixed: false,
                 constrainX: false,
@@ -692,30 +714,69 @@ $.extend(KhanUtil.Graphie.prototype, {
 
         var graph = movablePoint.graph;
 
-        if (movablePoint.visible) {
-            graph.style(movablePoint.normalStyle, function() {
-                movablePoint.visibleShape = graph.ellipse(movablePoint.coord, [movablePoint.pointSize / graph.scale[0], movablePoint.pointSize / graph.scale[1]]);
-            });
-        }
-        movablePoint.normalStyle.scale = 1;
-        movablePoint.highlightStyle.scale = 2;
+        var applySnapAndConstraints = function(coord) {
+            // coord should be the scaled coordinate
 
-        if (movablePoint.vertexLabel) {
-            movablePoint.labeledVertex = this.label([0, 0], "", "center", movablePoint.labelStyle);
-        }
-
-        movablePoint.drawLabel = function() {
-            if (movablePoint.vertexLabel) {
-                movablePoint.graph.labelVertex({
-                    vertex: movablePoint.coord,
-                    label: movablePoint.labeledVertex,
-                    text: movablePoint.vertexLabel,
-                    style: movablePoint.labelStyle
-                });
+            // move point away from edge of graph unless it's invisible or fixed
+            if (movablePoint.visible &&
+                    movablePoint.bounded &&
+                    !movablePoint.constraints.fixed) {
+                // can't go beyond 10 pixels from the edge
+                coord = graph.constrainToBounds(coord, 10);
             }
-        };
 
-        movablePoint.drawLabel();
+            var coordX = coord[0];
+            var coordY = coord[1];
+
+            // snap coordinates to grid
+            if (movablePoint.snapX !== 0) {
+                coordX = Math.round(coordX / movablePoint.snapX) * movablePoint.snapX;
+            }
+            if (movablePoint.snapY !== 0) {
+                coordY = Math.round(coordY / movablePoint.snapY) * movablePoint.snapY;
+            }
+
+            // snap to points around circle
+            if (movablePoint.constraints.fixedDistance.snapPoints) {
+                var mouse = graph.scalePoint(coord);
+                var mouseX = mouse[0];
+                var mouseY = mouse[1];
+
+                var snapRadians = 2 * Math.PI / movablePoint.constraints.fixedDistance.snapPoints;
+                var radius = movablePoint.constraints.fixedDistance.dist;
+
+                // get coordinates relative to the fixedDistance center
+                var centerCoord = movablePoint.constraints.fixedDistance.point;
+                var centerX = (centerCoord[0] - graph.range[0][0]) * graph.scale[0];
+                var centerY = (-centerCoord[1] + graph.range[1][1]) * graph.scale[1];
+
+                var mouseXrel = mouseX - centerX;
+                var mouseYrel = -mouseY + centerY;
+                var radians = Math.atan(mouseYrel / mouseXrel);
+                var outsideArcTanRange = mouseXrel < 0;
+
+                // adjust so that angles increase from 0 to 2 pi as you go around the circle
+                if (outsideArcTanRange) {
+                    radians += Math.PI;
+                }
+
+                // perform the snap
+                radians = Math.round(radians / snapRadians) * snapRadians;
+
+                // convert from radians back to pixels
+                mouseXrel = radius * Math.cos(radians);
+                mouseYrel = radius * Math.sin(radians);
+                // convert back to coordinates relative to graphie canvas
+                mouseX = mouseXrel + centerX;
+                mouseY = - mouseYrel + centerY;
+                coordX = KhanUtil.roundTo(5, mouseX / graph.scale[0] + graph.range[0][0]);
+                coordY = KhanUtil.roundTo(5, graph.range[1][1] - mouseY / graph.scale[1]);
+            }
+
+            // apply any constraints on movement
+            var result = movablePoint.applyConstraint([coordX, coordY]);
+            return result;
+        };
 
         // Using the passed coordinates, apply any constraints and return the closest coordinates
         // that match the constraints.
@@ -786,6 +847,33 @@ $.extend(KhanUtil.Graphie.prototype, {
             return newCoord;
         };
 
+        movablePoint.coord = applySnapAndConstraints(movablePoint.coord);
+
+        if (movablePoint.visible) {
+            graph.style(movablePoint.normalStyle, function() {
+                movablePoint.visibleShape = graph.ellipse(movablePoint.coord, [movablePoint.pointSize / graph.scale[0], movablePoint.pointSize / graph.scale[1]]);
+            });
+        }
+        movablePoint.normalStyle.scale = 1;
+        movablePoint.highlightStyle.scale = 2;
+
+        if (movablePoint.vertexLabel) {
+            movablePoint.labeledVertex = this.label([0, 0], "", "center", movablePoint.labelStyle);
+        }
+
+        movablePoint.drawLabel = function() {
+            if (movablePoint.vertexLabel) {
+                movablePoint.graph.labelVertex({
+                    vertex: movablePoint.coord,
+                    label: movablePoint.labeledVertex,
+                    text: movablePoint.vertexLabel,
+                    style: movablePoint.labelStyle
+                });
+            }
+        };
+
+        movablePoint.drawLabel();
+
 
         if (movablePoint.visible && !movablePoint.constraints.fixed) {
             // the invisible shape in front of the point that gets mouse events
@@ -820,63 +908,11 @@ $.extend(KhanUtil.Graphie.prototype, {
                         movablePoint.dragging = true;
                         KhanUtil.dragging = true;
 
-                        // mouse{X|Y} are in pixels relative to the SVG
-                        var mouseX = event.pageX - $(graph.raphael.canvas.parentNode).offset().left;
-                        var mouseY = event.pageY - $(graph.raphael.canvas.parentNode).offset().top;
-                        // can't go beyond 10 pixels from the edge
-                        mouseX = Math.max(10, Math.min(graph.xpixels - 10, mouseX));
-                        mouseY = Math.max(10, Math.min(graph.ypixels - 10, mouseY));
+                        var coord = graph.getMouseCoord(event);
 
-                        // coord{X|Y} are the scaled coordinate values
-                        var coordX = mouseX / graph.scale[0] + graph.range[0][0];
-                        var coordY = graph.range[1][1] - mouseY / graph.scale[1];
-
-                        // snap coordinates to grid
-                        if (movablePoint.snapX !== 0) {
-                            coordX = Math.round(coordX / movablePoint.snapX) * movablePoint.snapX;
-                        }
-                        if (movablePoint.snapY !== 0) {
-                            coordY = Math.round(coordY / movablePoint.snapY) * movablePoint.snapY;
-                        }
-
-                        // snap to points around circle
-                        if (movablePoint.constraints.fixedDistance.snapPoints) {
-
-                            var snapRadians = 2 * Math.PI / movablePoint.constraints.fixedDistance.snapPoints;
-                            var radius = movablePoint.constraints.fixedDistance.dist;
-
-                            // get coordinates relative to the fixedDistance center
-                            var centerCoord = movablePoint.constraints.fixedDistance.point;
-                            var centerX = (centerCoord[0] - graph.range[0][0]) * graph.scale[0];
-                            var centerY = (-centerCoord[1] + graph.range[1][1]) * graph.scale[1];
-
-                            var mouseXrel = mouseX - centerX;
-                            var mouseYrel = -mouseY + centerY;
-                            var radians = Math.atan(mouseYrel / mouseXrel);
-                            var outsideArcTanRange = mouseXrel < 0;
-
-                            // adjust so that angles increase from 0 to 2 pi as you go around the circle
-                            if (outsideArcTanRange) {
-                                radians += Math.PI;
-                            }
-
-                            // perform the snap
-                            radians = Math.round(radians / snapRadians) * snapRadians;
-
-                            // convert from radians back to pixels
-                            mouseXrel = radius * Math.cos(radians);
-                            mouseYrel = radius * Math.sin(radians);
-                            // convert back to coordinates relative to graphie canvas
-                            mouseX = mouseXrel + centerX;
-                            mouseY = - mouseYrel + centerY;
-                            coordX = KhanUtil.roundTo(5, mouseX / graph.scale[0] + graph.range[0][0]);
-                            coordY = KhanUtil.roundTo(5, graph.range[1][1] - mouseY / graph.scale[1]);
-                        }
-
-                        // apply any constraints on movement
-                        var coord = movablePoint.applyConstraint([coordX, coordY]);
-                        coordX = coord[0];
-                        coordY = coord[1];
+                        coord = applySnapAndConstraints(coord);
+                        var coordX = coord[0];
+                        var coordY = coord[1];
 
                         if (event.type === "vmousemove") {
                             var doMove = true;
@@ -885,12 +921,12 @@ $.extend(KhanUtil.Graphie.prototype, {
                             // By returning false from onMove(), the move can be vetoed,
                             // providing custom constraints on where the point can be moved.
                             // By returning array [x, y], the move can be overridden
-                            if ($.isFunction(movablePoint.onMove)) {
+                            if (_.isFunction(movablePoint.onMove)) {
                                 var result = movablePoint.onMove(coordX, coordY);
                                 if (result === false) {
                                     doMove = false;
                                 }
-                                if ($.isArray(result)) {
+                                if (_.isArray(result)) {
                                     coordX = result[0];
                                     coordY = result[1];
                                 }
@@ -915,9 +951,9 @@ $.extend(KhanUtil.Graphie.prototype, {
                             $(document).unbind("vmousemove vmouseup");
                             movablePoint.dragging = false;
                             KhanUtil.dragging = false;
-                            if ($.isFunction(movablePoint.onMoveEnd)) {
+                            if (_.isFunction(movablePoint.onMoveEnd)) {
                                 var result = movablePoint.onMoveEnd(coordX, coordY);
-                                if ($.isArray(result)) {
+                                if (_.isArray(result)) {
                                     coordX = result[0];
                                     coordY = result[1];
                                     mouseX = (coordX - graph.range[0][0]) * graph.scale[0];
@@ -978,7 +1014,7 @@ $.extend(KhanUtil.Graphie.prototype, {
                 this.mouseTarget.animate(end, time);
             }
             this.coord = [coordX, coordY];
-            if ($.isFunction(this.onMove)) {
+            if (_.isFunction(this.onMove)) {
                 this.onMove(coordX, coordY);
             }
         };
@@ -1173,7 +1209,7 @@ $.extend(KhanUtil.Graphie.prototype, {
             coordY = fn(closestX);
 
             // If the caller wants to be notified when the user points to the function
-            if ($.isFunction(interactiveFn.onMove)) {
+            if (_.isFunction(interactiveFn.onMove)) {
                 interactiveFn.onMove(coordX, coordY);
             }
 
@@ -1185,7 +1221,7 @@ $.extend(KhanUtil.Graphie.prototype, {
                 interactiveFn.highlight = false;
                 interactiveFn.cursorPoint.animate({ opacity: 0.0 }, 50);
                 // If the caller wants to be notified when the user stops pointing to the function
-                if ($.isFunction(interactiveFn.onLeave)) {
+                if (_.isFunction(interactiveFn.onLeave)) {
                     interactiveFn.onLeave(coordX, coordY);
                 }
             }
@@ -1254,7 +1290,8 @@ $.extend(KhanUtil.Graphie.prototype, {
             sideLabel: "",
             vertexLabels: [],
             numArrows: 0,
-            numTicks: 0
+            numTicks: 0,
+            movePointsWithLine: false
         }, options);
 
         // If the line segment is defined by movablePoints, coordA/coordZ are
@@ -1487,7 +1524,26 @@ $.extend(KhanUtil.Graphie.prototype, {
                             lineSegment.coordA = [coordX + mouseOffsetA[0], coordY + mouseOffsetA[1]];
                             lineSegment.coordZ = [coordX + mouseOffsetZ[0], coordY + mouseOffsetZ[1]];
                             lineSegment.transform();
-                            if ($.isFunction(lineSegment.onMove)) {
+
+                            if (lineSegment.movePointsWithLine) {
+                                // If the points are movablePoints, adjust
+                                // their coordinates when the line itself is
+                                // dragged
+                                if (typeof lineSegment.pointA === "object") {
+                                    lineSegment.pointA.setCoord([
+                                            lineSegment.pointA.coord[0] + dX,
+                                            lineSegment.pointA.coord[1] + dY
+                                    ]);
+                                }
+                                if (typeof lineSegment.pointZ === "object") {
+                                    lineSegment.pointZ.setCoord([
+                                            lineSegment.pointZ.coord[0] + dX,
+                                            lineSegment.pointZ.coord[1] + dY
+                                    ]);
+                                }
+                            }
+
+                            if (_.isFunction(lineSegment.onMove)) {
                                 lineSegment.onMove(dX, dY);
                             }
 
@@ -1498,7 +1554,7 @@ $.extend(KhanUtil.Graphie.prototype, {
                             if (!lineSegment.highlight) {
                                 lineSegment.visibleLine.animate(lineSegment.normalStyle, 50);
                             }
-                            if ($.isFunction(lineSegment.onMoveEnd)) {
+                            if (_.isFunction(lineSegment.onMoveEnd)) {
                                 lineSegment.onMoveEnd();
                             }
 
@@ -1549,6 +1605,7 @@ $.extend(KhanUtil.Graphie.prototype, {
             snapX: 0,
             snapY: 0,
             fixed: false,
+            constrainToGraph: true,
             normalStyle: {
                 "stroke": KhanUtil.BLUE,
                 "stroke-width": 2,
@@ -1768,7 +1825,7 @@ $.extend(KhanUtil.Graphie.prototype, {
                         if (!_.any(_.pluck(points, "dragging"))) {
                             _.each(points, function(point) {
                                 point.visibleShape.animate(point.normalStyle, 50);
-                            });                            
+                            });
                         }
                     }
 
@@ -1788,6 +1845,8 @@ $.extend(KhanUtil.Graphie.prototype, {
                     if (polygon.snapY > 0) {
                         startY = Math.round(startY / polygon.snapY) * polygon.snapY;
                     }
+                    var lastX = startX;
+                    var lastY = startY;
 
                     var polygonCoords = polygon.coords.slice();
 
@@ -1808,8 +1867,22 @@ $.extend(KhanUtil.Graphie.prototype, {
                         var mouseY = event.pageY - $(graphie.raphael.canvas.parentNode).offset().top;
 
                         // no part of the polygon can go beyond 10 pixels from the edge
-                        mouseX = Math.max(offsetLeft + 10, Math.min(graphie.xpixels - 10 - offsetRight, mouseX));
-                        mouseY = Math.max(offsetTop + 10, Math.min(graphie.ypixels - 10 - offsetBottom, mouseY));
+                        if (polygon.constrainToGraph) {
+                            mouseX = Math.max(
+                                offsetLeft + 10,
+                                Math.min(
+                                    graphie.xpixels - 10 - offsetRight,
+                                    mouseX
+                                )
+                            );
+                            mouseY = Math.max(
+                                offsetTop + 10,
+                                Math.min(
+                                    graphie.ypixels - 10 - offsetBottom,
+                                    mouseY
+                                )
+                            );
+                        }
 
                         // current{X|Y} are the scaled coordinate values of the current mouse position
                         var currentX = mouseX / graphie.scale[0] + graphie.range[0][0];
@@ -1825,25 +1898,49 @@ $.extend(KhanUtil.Graphie.prototype, {
                             var dX = currentX - startX;
                             var dY = currentY - startY;
 
-                            var increment = function(i) {
-                                return [polygonCoords[i][0] + dX, polygonCoords[i][1] + dY];
-                            };
-
-                            _.each(polygon.points, function(coordOrPoint, i) {
-                                if (isPoint(coordOrPoint)) {
-                                    coordOrPoint.setCoord(increment(i));
-                                } else {
-                                    polygon.points[i] = increment(i);
+                            // The caller has the option of adding an onMove()
+                            // method to the movablePolygon object we return as
+                            // a sort of event handler. By returning false from
+                            // onMove(), the move can be vetoed, providing
+                            // custom constraints on where the point can be
+                            // moved. By returning array [dX, dY], the move can
+                            // be overridden.
+                            var doMove = true;
+                            if (_.isFunction(polygon.onMove)) {
+                                var onMoveResult = polygon.onMove(dX, dY);
+                                if (onMoveResult === false) {
+                                    doMove = false;
+                                } else if (_.isArray(onMoveResult)) {
+                                    dX = onMoveResult[0];
+                                    dY = onMoveResult[1];
+                                    currentX = startX + dX;
+                                    currentY = startY + dY;
                                 }
-                            });
-
-                            polygon.transform();
-
-                            if ($.isFunction(polygon.onMove)) {
-                                polygon.onMove(dX, dY);
                             }
 
-                            $(polygon).trigger("move");
+                            var increment = function(i) {
+                                return [
+                                    polygonCoords[i][0] + dX,
+                                    polygonCoords[i][1] + dY
+                                ];
+                            };
+
+                            if (doMove) {
+                                _.each(polygon.points, function(coordOrPoint, i) {
+                                    if (isPoint(coordOrPoint)) {
+                                        coordOrPoint.setCoord(increment(i));
+                                    } else {
+                                        polygon.points[i] = increment(i);
+                                    }
+                                });
+
+                                polygon.transform();
+
+                                $(polygon).trigger("move");
+
+                                lastX = currentX;
+                                lastY = currentY;
+                            }
 
                         } else if (event.type === "vmouseup") {
                             $(document).unbind("vmousemove vmouseup");
@@ -1857,13 +1954,13 @@ $.extend(KhanUtil.Graphie.prototype, {
                             KhanUtil.dragging = false;
                             if (!polygon.highlight) {
                                 polygon.visibleShape.animate(polygon.normalStyle, 50);
-                                
+
                                 _.each(points, function(point) {
                                     point.visibleShape.animate(point.normalStyle, 50);
                                 });
                             }
-                            if ($.isFunction(polygon.onMoveEnd)) {
-                                polygon.onMoveEnd();
+                            if (_.isFunction(polygon.onMoveEnd)) {
+                                polygon.onMoveEnd(lastX - startX, lastY - startY);
                             }
                         }
                     });
@@ -1879,10 +1976,23 @@ $.extend(KhanUtil.Graphie.prototype, {
 
     /**
      * Constrain a point to be within the graph (including padding).
+     * If outside graph, point's x and y coordinates are clamped within
+     * the graph.
+     */
+    constrainToBounds: function(point, padding) {
+        var lower = this.unscalePoint([padding, this.ypixels - padding]);
+        var upper = this.unscalePoint([this.xpixels - padding, padding]);
+        var coordX = Math.max(lower[0], Math.min(upper[0], point[0]));
+        var coordY = Math.max(lower[1], Math.min(upper[1], point[1]));
+        return [coordX, coordY];
+    },
+
+    /**
+     * Constrain a point to be within the graph (including padding).
      * If outside graph, point is moved along the ray specified by angle
      * until inside graph.
      */
-    constrainToBounds: function(point, angle, padding) {
+    constrainToBoundsOnAngle: function(point, padding, angle) {
         var lower = this.unscalePoint([padding, this.ypixels - padding]);
         var upper = this.unscalePoint([this.xpixels - padding, padding]);
 
@@ -1937,7 +2047,7 @@ $.extend(KhanUtil.Graphie.prototype, {
                     [arrowWidget.coord[0], arrowWidget.coord[1] + 4 / graph.scale[1]],
                     [arrowWidget.coord[0] + 4 / graph.scale[0], arrowWidget.coord[1] - 4 / graph.scale[1]],
                     [arrowWidget.coord[0], arrowWidget.coord[1] - 4 / graph.scale[1]]
-                    ], { stroke: null, fill: KhanUtil.ORANGE });
+                    ], { stroke: "", fill: KhanUtil.ORANGE });
         } else if (arrowWidget.direction === "down") {
             arrowWidget.visibleShape = graph.path([
                     [arrowWidget.coord[0], arrowWidget.coord[1] + 4 / graph.scale[1]],
@@ -1945,8 +2055,16 @@ $.extend(KhanUtil.Graphie.prototype, {
                     [arrowWidget.coord[0], arrowWidget.coord[1] - 4 / graph.scale[1]],
                     [arrowWidget.coord[0] + 4 / graph.scale[0], arrowWidget.coord[1] + 4 / graph.scale[1]],
                     [arrowWidget.coord[0], arrowWidget.coord[1] + 4 / graph.scale[1]]
-                    ], { stroke: null, fill: KhanUtil.ORANGE });
+                    ], { stroke: "", fill: KhanUtil.ORANGE });
         }
+
+        // You might think we JUST NOW set the style when we drew this. But
+        // does IE8 care? No! Of course not! It was too busy being slow and
+        // obnoxious. So apparently we have to set the style again, later, when
+        // it's paying attention. Or something.
+        _.defer(function() {
+            arrowWidget.visibleShape.attr({stroke: "", fill: KhanUtil.ORANGE});
+        });
 
         arrowWidget.mouseTarget = graph.mouselayer.circle(
                 graph.scalePoint(arrowWidget.coord)[0], graph.scalePoint(arrowWidget.coord)[1], 15);
@@ -2456,7 +2574,12 @@ $.extend(KhanUtil.Graphie.prototype, {
         var graphie = this;
         var circle = $.extend({
             center: [0, 0],
-            radius: 2
+            radius: 2,
+            snapX: 0.5,
+            snapY: 0.5,
+            snapRadius: 0.5,
+            minRadius: 1,
+            centerConstraints: {}
         }, options);
 
         circle.centerPoint = graphie.addMovablePoint({
@@ -2466,8 +2589,9 @@ $.extend(KhanUtil.Graphie.prototype, {
                 stroke: KhanUtil.BLUE,
                 fill: KhanUtil.BLUE
             },
-            snapX: 0.5,
-            snapY: 0.5
+            snapX: circle.snapX,
+            snapY: circle.snapY,
+            constraints: circle.centerConstraints
         });
         circle.circ = graphie.circle(circle.center, circle.radius, {
             stroke: KhanUtil.BLUE,
@@ -2483,8 +2607,9 @@ $.extend(KhanUtil.Graphie.prototype, {
             });
 
         // Highlight circle circumference on center point hover
-        $(circle.centerPoint.mouseTarget[0]).on(
-            "vmouseover vmouseout", function(event) {
+        if (!circle.centerConstraints.fixed) {
+            $(circle.centerPoint.mouseTarget[0]).on("vmouseover vmouseout",
+                    function(event) {
                 if (circle.centerPoint.highlight) {
                     circle.circ.animate({
                         stroke: KhanUtil.ORANGE,
@@ -2497,12 +2622,15 @@ $.extend(KhanUtil.Graphie.prototype, {
                     }, 50);
                 }
             });
+        }
 
         circle.toFront = function() {
             circle.circ.toFront();
             circle.perim.toFront();
             circle.centerPoint.visibleShape.toFront();
-            circle.centerPoint.mouseTarget.toFront();
+            if (!circle.centerConstraints.fixed) {
+                circle.centerPoint.mouseTarget.toFront();
+            }
         };
 
         circle.centerPoint.onMove = function(x, y) {
@@ -2515,6 +2643,9 @@ $.extend(KhanUtil.Graphie.prototype, {
                 cx: graphie.scalePoint(x)[0],
                 cy: graphie.scalePoint(y)[1]
             });
+            if (circle.onMove) {
+                circle.onMove(x, y);
+            }
         };
 
         $(circle.centerPoint).on("move", function() {
@@ -2583,6 +2714,7 @@ $.extend(KhanUtil.Graphie.prototype, {
                         (event.which === 1 || event.which === 0)) {
                     event.preventDefault();
                     circle.toFront();
+                    var startRadius = circle.radius;
 
                     $(document).on("vmousemove vmouseup", function(event) {
                         event.preventDefault();
@@ -2590,33 +2722,37 @@ $.extend(KhanUtil.Graphie.prototype, {
                         KhanUtil.dragging = true;
 
                         if (event.type === "vmousemove") {
-                            // mouse{X|Y} are in pixels relative to the SVG
-                            var mouseX = event.pageX - $(graphie.raphael.
-                                canvas.parentNode).offset().left;
-                            var mouseY = event.pageY - $(graphie.raphael.
-                                canvas.parentNode).offset().top;
                             // can't go beyond 10 pixels from the edge
-                            mouseX = Math.max(10, Math.min(graphie.xpixels - 10,
-                                mouseX));
-                            mouseY = Math.max(10, Math.min(graphie.ypixels - 10,
-                                mouseY));
-
-                            // coord{X|Y} are the scaled coordinate values
-                            var coordX = mouseX / graphie.scale[0] +
-                                graphie.range[0][0];
-                            var coordY = graphie.range[1][1] - mouseY /
-                                graphie.scale[1];
+                            // coord is the scaled coordinate
+                            var coord = graphie.constrainToBounds(
+                                graphie.getMouseCoord(event), 10);
 
                             var radius = KhanUtil.getDistance(
-                                circle.centerPoint.coord, [coordX, coordY]);
-                            radius = Math.max(1,
-                                Math.round(radius / 0.5) * 0.5);
-                            circle.setRadius(radius);
-                            $(circle).trigger("move");
+                                circle.centerPoint.coord, coord);
+                            radius = Math.max(circle.minRadius,
+                                Math.round(radius / circle.snapRadius) *
+                                circle.snapRadius);
+                            var oldRadius = circle.radius;
+                            var doResize = true;
+                            if (circle.onResize) {
+                                var onResizeResult = circle.onResize(radius, oldRadius);
+                                if (_.isNumber(onResizeResult)) {
+                                    radius = onResizeResult;
+                                } else if (onResizeResult === false) {
+                                    doResize = false;
+                                }
+                            }
+                            if (doResize) {
+                                circle.setRadius(radius);
+                                $(circle).trigger("move");
+                            }
                         } else if (event.type === "vmouseup") {
                             $(document).off("vmousemove vmouseup");
                             circle.dragging = false;
                             KhanUtil.dragging = false;
+                            if (circle.onResizeEnd) {
+                                circle.onResizeEnd(circle.radius, startRadius);
+                            }
                         }
                     });
                 }
@@ -2624,6 +2760,232 @@ $.extend(KhanUtil.Graphie.prototype, {
 
         return circle;
     },
+
+    addRotateHandle: (function() {
+        var drawRotateHandle = function(graphie, center, radius, halfWidth,
+                angle) {
+            // Get a point on the arrow, given an angle offset and a distance
+            // from the "midline" of the arrow (ROTATE_HANDLE_DIST away from
+            // the rotation point).
+            var getRotateHandlePoint = function(offset,
+                    distanceFromArrowMidline) {
+                var distFromRotationCenter = radius + distanceFromArrowMidline;
+                var vec = KhanUtil.kvector.cartFromPolarDeg([
+                    distFromRotationCenter,
+                    angle + offset
+                ]);
+                var absolute = KhanUtil.kvector.add(center, vec);
+                var pixels = graphie.scalePoint(absolute);
+                return pixels[0] + "," + pixels[1];
+            };
+
+            // Inner and outer radii for the curved part of the arrow
+            var innerR = graphie.scaleVector(radius - halfWidth);
+            var outerR = graphie.scaleVector(radius + halfWidth);
+
+            // Draw the double-headed arrow thing that shows users where to
+            // click and drag to rotate
+            return graphie.raphael.path(
+                // upper arrowhead
+                " M" + getRotateHandlePoint(30, -halfWidth) +
+                " L" + getRotateHandlePoint(30, -3 * halfWidth) +
+                " L" + getRotateHandlePoint(60, 0) +
+                " L" + getRotateHandlePoint(30, 3 * halfWidth) +
+                " L" + getRotateHandlePoint(30, halfWidth) +
+                // outer arc
+                " A" + outerR[0] + "," + outerR[1] + ",0,0,1," +
+                    getRotateHandlePoint(-30, halfWidth) +
+                // lower arrowhead
+                " L" + getRotateHandlePoint(-30, 3 * halfWidth) +
+                " L" + getRotateHandlePoint(-60, 0) +
+                " L" + getRotateHandlePoint(-30, -3 * halfWidth) +
+                " L" + getRotateHandlePoint(-30, -halfWidth) +
+                // inner arc
+                " A" + innerR[0] + "," + innerR[1] + ",0,0,0," +
+                    getRotateHandlePoint(30, -halfWidth) +
+                " Z"
+            ).attr({
+                stroke: null,
+                fill: KhanUtil.ORANGE
+            });
+        };
+
+        return function(options) {
+            var graph = this;
+            var rotatePoint = options.center;
+            var radius = options.radius;
+            var id = _.uniqueId("rotateHandle");
+
+            // Normalize rotatePoint into something that always looks
+            // like a movablePoint
+            if (_.isArray(rotatePoint)) {
+                rotatePoint = {
+                    coord: rotatePoint
+                };
+            }
+
+            var rotateHandle = graph.addMovablePoint({
+                coord: KhanUtil.kpoint.addVector(
+                    rotatePoint.coord,
+                    KhanUtil.kvector.cartFromPolarDeg(
+                        radius,
+                        options.angleDeg || 0
+                )),
+                constraints: {
+                    fixedDistance: {
+                        dist: radius,
+                        point: rotatePoint
+                    }
+                },
+            });
+
+            // move the rotatePoint in front of the rotateHandle to avoid
+            // confusing clicking/scaling of the rotateHandle when the user
+            // intends to click on the rotatePoint
+            rotatePoint.toFront();
+
+            // The logic below in onMove handlers is to make sure we
+            // move rotateHandle with rotatePoint
+            var rotatePointPrevCoord = rotatePoint.coord;
+            var rotateHandlePrevCoord = rotateHandle.coord;
+            var rotateHandleStartCoord = rotateHandlePrevCoord;
+            var isRotating = false;
+            var isHovering = false;
+            var drawnRotateHandle;
+
+            var redrawRotateHandle = function(handleCoord) {
+                if (drawnRotateHandle) {
+                    drawnRotateHandle.remove();
+                }
+                var handleVec = KhanUtil.kvector.subtract(handleCoord,
+                        rotatePoint.coord);
+                var handlePolar = KhanUtil.kvector.polarDegFromCart(handleVec);
+                var angle = handlePolar[1];
+                drawnRotateHandle = drawRotateHandle(
+                    graph,
+                    rotatePoint.coord,
+                    options.radius,
+                    (isRotating || isHovering ?
+                        options.hoverWidth / 2 :
+                        options.width / 2
+                    ),
+                    angle
+                );
+            };
+
+
+            // when the rotation center moves, we need to move
+            // the rotationHandle as well, or it will end up out
+            // of sync
+            $(rotatePoint).on("move." + id, function() {
+                var delta = KhanUtil.kvector.subtract(
+                    rotatePoint.coord,
+                    rotatePointPrevCoord
+                );
+
+                rotateHandle.setCoord(KhanUtil.kvector.add(
+                    rotateHandle.coord,
+                    delta
+                ));
+
+                redrawRotateHandle(rotateHandle.coord);
+
+                rotatePointPrevCoord = rotatePoint.coord;
+                rotateHandle.constraints.fixedDistance.point = rotatePoint;
+                rotateHandlePrevCoord = rotateHandle.coord;
+            });
+
+            // Rotate polygon with rotateHandle
+            rotateHandle.onMove = function(x, y) {
+                if (!isRotating) {
+                    rotateHandleStartCoord = rotateHandlePrevCoord;
+                    isRotating = true;
+                }
+
+                var coord = [x, y];
+
+                if (options.onMove) {
+                    var oldPolar = KhanUtil.kvector.polarDegFromCart(
+                        KhanUtil.kvector.subtract(
+                            rotateHandlePrevCoord,
+                            rotatePoint.coord
+                        )
+                    );
+                    var newPolar = KhanUtil.kvector.polarDegFromCart(
+                        KhanUtil.kvector.subtract(coord, rotatePoint.coord)
+                    );
+
+                    var oldAngle = oldPolar[1];
+                    var newAngle = newPolar[1];
+                    var result = options.onMove(newAngle, oldAngle);
+                    if (result != null && result !== true) {
+                        if (result === false) {
+                            result = oldAngle;
+                        }
+                        coord = KhanUtil.kvector.add(
+                            rotatePoint.coord,
+                            KhanUtil.kvector.cartFromPolarDeg(
+                                [oldPolar[0], result]
+                            )
+                        );
+                    }
+                }
+
+                redrawRotateHandle(coord);
+
+                rotateHandlePrevCoord = coord;
+                return coord;
+            };
+
+            rotateHandle.onMoveEnd = function() {
+                isRotating = false;
+                redrawRotateHandle(rotateHandle.coord);
+                if (options.onMoveEnd) {
+                    var oldPolar = KhanUtil.kvector.polarDegFromCart(
+                        KhanUtil.kvector.subtract(
+                            rotateHandleStartCoord,
+                            rotatePoint.coord
+                        )
+                    );
+                    var newPolar = KhanUtil.kvector.polarDegFromCart(
+                        KhanUtil.kvector.subtract(
+                            rotateHandle.coord,
+                            rotatePoint.coord
+                        )
+                    );
+                    options.onMoveEnd(newPolar[1], oldPolar[1]);
+                }
+            };
+
+            // Remove the default dot added by the movablePoint since we have our
+            // double-arrow thing
+            rotateHandle.visibleShape.remove();
+            // Make the mouse target bigger to encompass the whole area around the
+            // double-arrow thing
+            rotateHandle.mouseTarget.attr({scale: 2});
+
+            // Make the arrow-thing grow and shrink with mouseover/out
+            $(rotateHandle.mouseTarget[0]).bind("vmouseover", function(e) {
+                isHovering = true;
+                redrawRotateHandle(rotateHandle.coord);
+            });
+            $(rotateHandle.mouseTarget[0]).bind("vmouseout", function(e) {
+                isHovering = false;
+                redrawRotateHandle(rotateHandle.coord);
+            });
+
+            redrawRotateHandle(rotateHandle.coord);
+
+            var oldRemove = rotateHandle.remove;
+            rotateHandle.remove = function() {
+                oldRemove.call(rotateHandle);
+                drawnRotateHandle.remove();
+                $(rotatePoint).off("move." + id);
+            };
+
+            return rotateHandle;
+        };
+    })(),
 
     protractor: function(center) {
         return new Protractor(this, center);
@@ -2810,6 +3172,10 @@ function Protractor(graph, center) {
         });
     };
 
+    this.remove = function() {
+        this.set.remove();
+    };
+
     this.makeTranslatable();
     return this;
 }
@@ -2897,7 +3263,7 @@ _.extend(MovableAngle.prototype, {
                 // Constrain ray points to stay the same angle from vertex
                 var angle = KhanUtil.findAngle(newVertex, newPoint);
                 angle *= Math.PI / 180;
-                newPoint = graphie.constrainToBounds(newPoint, angle, 10);
+                newPoint = graphie.constrainToBoundsOnAngle(newPoint, 10, angle);
                 newPoints[i] = newPoint;
 
                 if (tooClose(newVertex, newPoint)) {

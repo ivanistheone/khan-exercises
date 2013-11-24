@@ -144,10 +144,20 @@ function newProblem(e, data) {
     $("#hint").attr("disabled", hintsUsed >= numHints);
     enableCheckAnswer();
 
-    // Update related videos
+    // Render related videos, unless we're on the final stage of mastery.
     if (data.userExercise) {
-        Exercises.RelatedVideos.render(
-                data.userExercise.exerciseModel.relatedVideos);
+        var userExercise = data.userExercise;
+        var nearMastery = userExercise.exerciseProgress.level === "mastery2" ||
+                userExercise.exerciseProgress.level === "mastery3";
+        var task = Exercises.learningTask;
+        var hideRelatedVideos = task && task.isMasteryTask() && nearMastery;
+
+        if (hideRelatedVideos) {
+            Exercises.RelatedVideos.render([]);
+        } else {
+            Exercises.RelatedVideos.render(
+                    data.userExercise.exerciseModel.relatedVideos);
+        }
     }
 }
 
@@ -451,6 +461,8 @@ function buildAttemptData(correct, attemptNum, attemptContent, timeTaken,
         // If working in the context of a LearningTask (on the new learning
         // dashboard), supply the task ID.
         task_id: Exercises.learningTask && Exercises.learningTask.get("id"),
+
+        user_mission_id: Exercises.userMissionId,
 
         // The current card data
         card: JSON.stringify(Exercises.currentCard),

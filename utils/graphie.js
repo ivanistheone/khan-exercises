@@ -1,62 +1,12 @@
 (function() {
-    var Graphie = KhanUtil.Graphie = function() {
+
+    var kpoint = KhanUtil.kpoint;
+    $.fn["graphieLoad"] = function() {
+        kpoint = KhanUtil.kpoint;
     };
 
-    $.extend(KhanUtil, {
-        unscaledSvgPath: function(points) {
-            return $.map(points, function(point, i) {
-                if (point === true) {
-                    return "z";
-                }
-                return (i === 0 ? "M" : "L") + point[0] + " " + point[1];
-            }).join("");
-        },
-
-        getDistance: function(point1, point2) {
-            var a = point1[0] - point2[0];
-            var b = point1[1] - point2[1];
-            return Math.sqrt(a * a + b * b);
-        },
-
-        /**
-        * Return the difference between two sets of coordinates
-        */
-        coordDiff: function(startCoord, endCoord) {
-            return _.map(endCoord, function(val, i) {
-                return endCoord[i] - startCoord[i];
-            });
-        },
-
-        /**
-        * Round the given coordinates to a given snap value
-        * (e.g., nearest 0.2 increment)
-        */
-        snapCoord: function(coord, snap) {
-            return _.map(coord, function(val, i) {
-                return KhanUtil.roundToNearest(snap[i], val);
-            });
-        },
-
-        // Find the angle between two or three points
-        findAngle: function(point1, point2, vertex) {
-            if (vertex === undefined) {
-                var x = point1[0] - point2[0];
-                var y = point1[1] - point2[1];
-                if (!x && !y) {
-                    return 0;
-                }
-                return (180 + Math.atan2(-y, -x) * 180 / Math.PI + 360) % 360;
-            } else {
-                return KhanUtil.findAngle(point1, vertex) - KhanUtil.findAngle(point2, vertex);
-            }
-        }
-    });
-
-
-    _.extend(Graphie.prototype, {
-        cartToPolar: cartToPolar,
-        polar: polar
-    });
+    var Graphie = KhanUtil.Graphie = function() {
+    };
 
     /* Convert cartesian coordinates [x, y] to polar coordinates [r,
      * theta], with theta in degrees, or in radians if angleInRadians is
@@ -82,6 +32,60 @@
         th = th * Math.PI / 180;
         return [r[0] * Math.cos(th), r[1] * Math.sin(th)];
     }
+
+    $.extend(KhanUtil, {
+        unscaledSvgPath: function(points) {
+            return $.map(points, function(point, i) {
+                if (point === true) {
+                    return "z";
+                }
+                return (i === 0 ? "M" : "L") + point[0] + " " + point[1];
+            }).join("");
+        },
+
+        getDistance: function(point1, point2) {
+            return kpoint.distanceToPoint(point1, point2);
+        },
+
+        /**
+        * Return the difference between two sets of coordinates
+        */
+        coordDiff: function(startCoord, endCoord) {
+            return _.map(endCoord, function(val, i) {
+                return endCoord[i] - startCoord[i];
+            });
+        },
+
+        /**
+        * Round the given coordinates to a given snap value
+        * (e.g., nearest 0.2 increment)
+        */
+        snapCoord: function(coord, snap) {
+            return _.map(coord, function(val, i) {
+                return KhanUtil.roundToNearest(snap[i], val);
+            });
+        },
+
+        // Find the angle in degrees between two or three points
+        findAngle: function(point1, point2, vertex) {
+            if (vertex === undefined) {
+                var x = point1[0] - point2[0];
+                var y = point1[1] - point2[1];
+                if (!x && !y) {
+                    return 0;
+                }
+                return (180 + Math.atan2(-y, -x) * 180 / Math.PI + 360) % 360;
+            } else {
+                return KhanUtil.findAngle(point1, vertex) - KhanUtil.findAngle(point2, vertex);
+            }
+        }
+    });
+
+
+    _.extend(Graphie.prototype, {
+        cartToPolar: cartToPolar,
+        polar: polar
+    });
 
     var labelDirections = {
         "center": [-0.5, -0.5],
@@ -434,7 +438,9 @@
                         // if there is an asymptote here, meaning that the graph switches signs and has a large difference
                         ((funcVal[1] < 0) !== (lastVal[1] < 0)) && Math.abs(funcVal[1] - lastVal[1]) > 2 * yScale ||
                         // or the function value gets really high (which breaks raphael)
-                        Math.abs(funcVal[1]) > 1e7
+                        Math.abs(funcVal[1]) > 1e7 ||
+                        // or the function is undefined
+                        isNaN(funcVal[1])
                        ) {
                         // split the path at this point, and draw it
                         paths.push(this.path(points));
@@ -607,7 +613,7 @@
                 var result;
 
                 // The last argument is probably trying to change the style
-                if (typeof last === "object" && !$.isArray(last)) {
+                if (typeof last === "object" && !_.isArray(last)) {
                     currentStyle = $.extend({}, currentStyle, processAttributes(last));
 
                     var rest = [].slice.call(arguments, 0, arguments.length - 1);
@@ -708,7 +714,7 @@
                      range[1][1] + (range[1][1] < 0 ? 1 : 0)]
                 ];
 
-            if (!$.isArray(unityLabels)) {
+            if (!_.isArray(unityLabels)) {
                 unityLabels = [unityLabels, unityLabels];
             }
 
@@ -890,8 +896,8 @@
             // Grab code for later execution
             var code = $(this).text(), graphie;
 
-            // Ignore code that isn't really code
-            if (code.match(/Created with Rapha\xebl/)) {
+            // Ignore graphie elements that have already been processed
+            if ($(this).data("graphie") != null) {
                 return;
             }
 

@@ -1,3 +1,5 @@
+(function() {
+
 // Example usage:
 // <var>person(1)</var> traveled 5 mi by <var>vehicle(1)</var>. Let
 // <var>his(1)</var> average speed be <var>personVar(1)</var>.
@@ -32,7 +34,7 @@ $.extend(KhanUtil, {
 
     toSentenceTex: function(array, highlight, highlightClass) {
         var wrapped = $.map(array, function(elem) {
-            if (($.isFunction(highlight) && highlight(elem)) || (highlight !== undefined && elem === highlight)) {
+            if ((_.isFunction(highlight) && highlight(elem)) || (highlight !== undefined && elem === highlight)) {
                 return "<code class='" + highlightClass + "'>" + elem + "</code>";
             }
             return "<code>" + elem + "</code>";
@@ -233,6 +235,24 @@ KhanUtil.Plural.prototype = {
         return this.plural_fn(1);
     }
 };
+
+var decimalPlaces = [
+    new Plural(function(num) {
+        return $.ngettext("one", "ones", num);
+    }),
+    new Plural(function(num) {
+        return $.ngettext("tenth", "tenths", num);
+    }),
+    new Plural(function(num) {
+        return $.ngettext("hundredth", "hundredths", num);
+    }),
+    new Plural(function(num) {
+        return $.ngettext("thousandth", "thousandths", num);
+    }),
+    new Plural(function(num) {
+        return $.ngettext("ten thousandth", "ten thousandths", num);
+    })
+];
 
 $.fn["word-problemsLoad"] = function() {
 
@@ -1008,3 +1028,5 @@ $.fn["word-problemsLoad"] = function() {
         }
     });
 };
+
+})();

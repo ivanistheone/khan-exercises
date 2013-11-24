@@ -57,7 +57,7 @@
       history mode
 */
 
-var Khan = (function() {
+window.Khan = (function() {
     // Numbers which are coprime to the number of bins, used for jumping through
     // exercises.  To quickly test a number in python use code like:
     // import fractions
@@ -278,6 +278,7 @@ var Khan = (function() {
             // http://groups.google.com/group/raphaeljs/browse_thread/thread/c34c75ad8d431544
 
             // The normal module dependencies.
+            "scratchpad": ["../third_party/jquery.mobile.vmouse"],
             "calculus": ["math", "expressions", "polynomials"],
             "exponents": ["math", "math-format"],
             "kinematics": ["math"],
@@ -289,16 +290,17 @@ var Khan = (function() {
             "unit-circle": ["../third_party/jquery.mobile.vmouse"],
             "interactive": ["graphie", "../third_party/jquery.mobile.vmouse"],
             "mean-and-median": ["stat"],
-            "math-model": ["ast"],
-            "simplify": ["math-model", "ast", "expr-helpers", "expr-normal-form", "steps-helpers"],
             "congruency": ["angles", "interactive"],
-            "graphie-3d": ["graphie", "matrix"],
-            "graphie-geometry": ["graphie", "matrix"],
+            "graphie": ["kpoint"],
+            "graphie-3d": ["graphie", "kmatrix", "kvector"],
+            "graphie-geometry": ["graphie", "kmatrix", "kvector", "kline"],
             "graphie-helpers": ["math-format"],
-            "matrix": ["expressions"],
+            "kmatrix": ["expressions"],
             "matrix-input": ["../third_party/jquery.cursor-position"],
             "chemistry": ["math-format"],
-            "d3": ["math-format"]
+            "kpoint": ["kvector"],
+            "kline": ["kpoint"],
+            "constructions": ["kmatrix"]
         },
 
         warnTimeout: function() {
@@ -341,7 +343,7 @@ var Khan = (function() {
                 "answer-types", "tmpl", "tex", "jquery.adhesion",
                 "calculator",
                 {
-                    src: urlBase + "third_party/MathJax/2.1/MathJax.js?config=KAthJax-da9a7f53e588f3837b045a600e1dc439"
+                    src: urlBase + "third_party/MathJax/2.1/MathJax.js?config=KAthJax-9e2776ffe7d2006f16f36d0d55d9464b"
                 });
 
             return mods;
@@ -392,11 +394,15 @@ var Khan = (function() {
 
             crc32: crc32,
 
-            // Rounds num to X places, and uses the proper decimal point.
+            // Rounds num to X places, and uses the proper decimal seperator.
             // But does *not* insert thousands separators.
             localeToFixed: function(num, places) {
-                var decimal = icu.getDecimalFormatSymbols().decimal_separator;
-                return num.toFixed(places).replace(".", decimal);
+                var localeDecimalSeperator = icu.getDecimalFormatSymbols().decimal_separator;
+                var localeFixed = num.toFixed(places).replace(".", localeDecimalSeperator);
+                if (localeFixed === "-0") {
+                    localeFixed = "0";
+                }
+                return localeFixed;
             }
         },
 
@@ -587,8 +593,9 @@ var Khan = (function() {
             var path = exerciseFile + "?seed=" + problemSeed + "&problem=" +
                         problemID,
                 locale = icu.getLocale(),
-                pathlink = "[" + path + (exercise.data("name") !== exerciseId ? " (" + exercise.data("name") + ")" : "") + "](http://sandcastle.khanacademy.org/media/castles/Khan:master/exercises/" + path + "&debug&lang=" + locale + ")",
-                historyLink = "[Answer timeline](" + "http://sandcastle.khanacademy.org/media/castles/Khan:master/exercises/" + path + "&debug&lang=" + locale + "&activity=" + encodeURIComponent(JSON.stringify(Exercises.userActivityLog)).replace(/\)/g, "\\)") + ")",
+                pathlink = "[" + path + (exercise && exercise.data("name") !== exerciseId ? " (" + exercise.data("name") + ")" : "") + "](http://sandcastle.kasandbox.org/media/castles/Khan:master/exercises/" + path + "&debug&lang=" + locale + ")",
+
+                historyLink = "[Answer timeline](" + "http://sandcastle.kasandbox.org/media/castles/Khan:master/exercises/" + path + "&debug&lang=" + locale + "&activity=" + encodeURIComponent(JSON.stringify(Exercises.userActivityLog)).replace(/\)/g, "\\)") + ")",
                 localeMsg = "Locale: " + locale,
                 userHash = "User hash: " + crc32(user),
 
@@ -613,11 +620,17 @@ var Khan = (function() {
         initReportIssueLink: function(selector) {
             selector = selector || "#report";
             $(selector).click(function(e) {
+                e.preventDefault();
+
+                // If a custom reportIssue handler already exists, just call it
+                if (Exercises.reportIssue) {
+                    Exercises.reportIssue();
+                    return;
+                }
+
                 var issueIntro = $._("Remember to check the hints and " +
                         "double check your math. All provided information will " +
                         "be public. Thanks for your help!");
-
-                e.preventDefault();
 
                 var report = $("#issue").css("display") !== "none",
                     form = $("#issue .issue-form").css("display") !== "none";
@@ -641,6 +654,17 @@ var Khan = (function() {
 
                 $("#issue").hide(500);
                 $("#issue-title, #issue-body").val("");
+            });
+
+            $("#issue-show-answer").click(function(e) {
+                e.preventDefault();
+                while (hints.length > 0) {
+                    $("#hint").click();
+                }
+                $(this).addClass("disabled");
+            });
+            $(Exercises).bind("newProblem", function() {
+                $("#issue-show-answer").removeClass("disabled");
             });
 
             // Submit an issue.
@@ -700,6 +724,7 @@ var Khan = (function() {
                 var agent_contains = function(sub) {
                         return agent.indexOf(sub) !== -1;
                     },
+                    profile = typeof KA !== "undefined" && KA.getUserProfile(),
                     flags = {
                         ie8: agent_contains("MSIE 8.0"),
                         ie9: agent_contains("Trident/5.0"),
@@ -714,6 +739,7 @@ var Khan = (function() {
                         lion: agent_contains("OS X 10_7") || agent_contains("OS X 10.7"),
                         scratchpad: (/scratch\s*pad/i).test(body),
                         ipad: agent_contains("iPad"),
+                        "500k": profile && profile.get("points") >= 500000,
                         undef: Exercises.guessLog == null
                     },
                     labels = [];
@@ -756,6 +782,11 @@ var Khan = (function() {
 
                 $("#issue-cancel").hide();
                 $("#issue-throbber").show();
+
+                // GitHub complains if the body is > 65535 characters
+                if (body.length > 65530) {
+                    body = body.substring(0, 65500) + "... [truncated]";
+                }
 
                 var dataObj = {
                     title: issueInfo.pretitle + " - " + title,
@@ -1057,9 +1088,9 @@ var Khan = (function() {
         var typeOverride = userExercise.problemType,
             seedOverride = userExercise.seed;
 
-        exerciseId = userExercise.exerciseModel.name;
-        exerciseName = userExercise.exerciseModel.displayName;
-        exerciseFile = userExercise.exerciseModel.fileName;
+        var exerciseId = userExercise.exerciseModel.name,
+            exerciseName = userExercise.exerciseModel.displayName,
+            exerciseFile = userExercise.exerciseModel.fileName;
 
         function finishRender() {
             // Get all problems of this exercise type...
@@ -1419,7 +1450,8 @@ var Khan = (function() {
         Khan.scratchpad.resize();
 
         // Enable the all answer input elements except the check answer button.
-        $("#answercontent input").not("#check-answer-button")
+        $("#answercontent input")
+            .not("#check-answer-button, #show-prereqs-button")
             .prop("disabled", false);
 
         // Show acceptable formats
@@ -1738,7 +1770,8 @@ var Khan = (function() {
                 input = inputRow.children("input"),
                 buttons = calculator.find("a"),
                 lastInstr = "",
-                ans;
+                ans,
+                separator = icu.getDecimalFormatSymbols().decimal_separator;
 
             var evaluate = function() {
                 var instr = input.val();
@@ -1748,9 +1781,17 @@ var Khan = (function() {
                     row = $("<div>").addClass("calc-row");
                     indiv = $("<div>").addClass("input").text(instr.replace(/pi/g, "\u03c0")).appendTo(row);
                     try {
+                        if (separator !== ".") {
+                            // i18nize the input numbers' decimal point
+                            instr = instr.split(separator).join(".");
+                        }
                         output = ans = Calculator.calculate(instr, ans);
                         if (typeof output === "number") {
                             outstr = Math.round(output * 1000000000) / 1000000000;
+                            if (separator !== ".") {
+                                // i18nize the output number's decimal point
+                                outstr = ("" + outstr).replace(".", separator);
+                            }
                         } else {
                             outstr = output;
                         }
@@ -1823,6 +1864,9 @@ var Khan = (function() {
                 input.val("");
                 history.children().not(inputRow).remove();
             });
+
+            // i18nize the decimal point button
+            $(".calculator-decimal").html(separator);
         }
 
         initializeCalculator();
@@ -1877,9 +1921,6 @@ var Khan = (function() {
             .bind("problemTemplateRendered", prepareSite)
             .bind("readyForNextProblem", function(ev, data) {
                 renderNextProblem(data);
-            })
-            .bind("warning", function(ev, data) {
-                warn(data.text, data.showClose);
             })
             .bind("upcomingExercise", function(ev, data) {
                 var userExercise = data.userExercise;
@@ -2007,14 +2048,7 @@ var Khan = (function() {
 
         debugLog("loadExercise start " + fileName);
         // Packing occurs on the server but at the same "exercises/" URL
-        $.get(urlBase + "exercises/" + fileName, function(data, status, xhr) {
-            if (!(/success|notmodified/).test(status)) {
-                // Maybe loading from a file:// URL?
-                debugLog("loadExercise err " + xhr.status + " " + fileName);
-                Khan.error("Error loading exercise from file " + fileName +
-                        xhr.status + " " + xhr.statusText);
-                return;
-            }
+        $.get(urlBase + "exercises/" + fileName).done(function(data) {
             debugLog("loadExercise got " + fileName);
 
             // Get rid of any external scripts in data before we shove data
@@ -2100,6 +2134,10 @@ var Khan = (function() {
                 debugLog("loadExercise subfail " + fileName);
                 promise.reject();
             });
+        }).fail(function(xhr, status) {
+            debugLog("loadExercise err " + xhr.status + " " + fileName);
+            Khan.error("Error loading exercise from file " + fileName +
+                    " " + xhr.status + " " + xhr.statusText);
         });
 
         return promise;
@@ -2189,4 +2227,4 @@ var Khan = (function() {
 })();
 
 // Make this publicly accessible
-var KhanUtil = Khan.Util;
+window.KhanUtil = Khan.Util;

@@ -38,6 +38,31 @@ $.extend(KhanUtil, {
         return KhanUtil.digits(n).reverse();
     },
 
+    // Convert a decimal number into an array of digits (reversed)
+    decimalDigits: function(n) {
+        var str = "" + Math.abs(n);
+        str = str.replace(".", "");
+
+        var list = [];
+        for (var i = str.length; i > 0; i--) {
+            list.push(str.charAt(i-1));
+        }
+
+        return list;
+    },
+
+    // Find number of digits after the decimal place
+    decimalPlaces: function(n) {
+        var str = "" + Math.abs(n);
+        str = str.split(".");
+
+        if (str.length === 1) {
+            return 0;
+        } else {
+            return str[1].length;
+        }
+    },
+
     digitsToInteger: function(digits) {
         var place = Math.floor(Math.pow(10, digits.length - 1));
         var number = 0;
@@ -61,7 +86,7 @@ $.extend(KhanUtil, {
     placesLeftOfDecimal: [$._("one"), $._("ten"), $._("hundred"),
         $._("thousand")],
     placesRightOfDecimal: [$._("one"), $._("tenth"), $._("hundredth"),
-        $._("thousandth")],
+        $._("thousandth"),$._("ten thousandth")],
 
     powerToPlace: function(power) {
         if (power < 0) {
@@ -119,6 +144,9 @@ $.extend(KhanUtil, {
 
     primes: [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43,
         47, 53, 59, 61, 67, 71, 73, 79, 83, 89, 97],
+
+    denominators: [2, 3, 4, 5, 6, 8, 10, 12, 100],
+    smallDenominators: [2, 3, 4, 5, 6, 8, 10, 12],
 
     getPrime: function() {
         return KhanUtil.primes[KhanUtil.rand(KhanUtil.primes.length)];
@@ -490,15 +518,6 @@ $.extend(KhanUtil, {
         return parseFloat(num.toFixed(digits));
     },
 
-    //Gives -1 or 1 so you can multiply to restore the sign of a number
-    restoreSign: function(num) {
-        num = parseFloat(num);
-        if (num < 0) {
-            return -1;
-        }
-        return 1;
-    },
-
     // Checks if a number or string representation thereof is an integer
     isInt: function(num) {
         return parseFloat(num) === parseInt(num, 10) && !isNaN(num);
@@ -523,19 +542,6 @@ $.extend(KhanUtil, {
             }
             return false;
         });
-    },
-
-    tagMarkup: function(val, tag, attr) {
-        attr = attr || "";
-        return "<" + tag + " " + attr + ">" + val + "</" + tag + ">";
-    },
-
-    /**
-     * Add hint color markup to a given value
-     */
-    hintColorMarkup: function(val, colorName) {
-        var hintCSS = "class='hint_" + colorName + "'";
-        return KhanUtil.tagMarkup(val, "span", hintCSS);
     },
 
     BLUE: "#6495ED",
